@@ -371,6 +371,45 @@ Decision mix: ~38% succeeded, 8% failed, 8% reversed, 2% superseded, 44% active.
 
 ---
 
+## Live Demo (Streamlit Cloud + Neon)
+
+A read-only live version of the dashboard is deployed on Streamlit Cloud, backed by a Neon PostgreSQL database. No Docker required — just open the link.
+
+> **Live URL:** *(add your Streamlit Cloud URL here after deployment)*
+
+### How it works
+
+| Component | Service | Purpose |
+|---|---|---|
+| Dashboard | [Streamlit Cloud](https://streamlit.io/cloud) | Hosts the Streamlit app (free tier) |
+| Database | [Neon](https://neon.tech) | Serverless PostgreSQL (free tier, Frankfurt region) |
+
+The live demo uses the `streamlit-cloud` branch, which connects the dashboard directly to the Neon database (bypassing the FastAPI API). The Docker Compose setup on `master` uses the full 3-service architecture (DB + API + Dashboard) for local development.
+
+### Deploying your own instance
+
+1. **Create a Neon project** at [neon.tech](https://neon.tech) (sign up with GitHub)
+2. **Load the schema and data** into your Neon database:
+   ```bash
+   # Install psql or use Python with psycopg2
+   psql "YOUR_NEON_CONNECTION_STRING" -f db/schema.sql
+   psql "YOUR_NEON_CONNECTION_STRING" -f db/views.sql
+   psql "YOUR_NEON_CONNECTION_STRING" -f db/seed_data.sql
+   ```
+3. **Deploy on Streamlit Cloud** at [share.streamlit.io](https://share.streamlit.io):
+   - Repository: your fork of this repo
+   - Branch: `streamlit-cloud`
+   - Main file: `dashboard/app.py`
+4. **Add your database secret** in Streamlit Cloud → App Settings → Secrets:
+   ```toml
+   DATABASE_URL = "postgresql://user:password@host/dbname?sslmode=require"
+   ```
+   > **Never commit real credentials.** Use `.streamlit/secrets.toml` locally (git-ignored) and Streamlit Cloud's encrypted secrets manager for production.
+
+5. See `.streamlit/secrets.toml.example` for the expected format.
+
+---
+
 ## Troubleshooting
 
 | Problem | Solution |

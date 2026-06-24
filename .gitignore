@@ -4,6 +4,9 @@
 .env.production
 .env.*.local
 
+# Streamlit secrets (real credentials — NEVER commit)
+.streamlit/secrets.toml
+
 # Python
 __pycache__/
 *.py[cod]
