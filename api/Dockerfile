@@ -3,16 +3,16 @@ FROM python:3.12-slim
 # Create non-root user before anything else
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-WORKDIR /app
+WORKDIR /srv
 
 # Install dependencies as root, then switch
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY . ./api/
 
 # Hand ownership to appuser
-RUN chown -R appuser:appuser /app
+RUN chown -R appuser:appuser /srv
 
 USER appuser
 

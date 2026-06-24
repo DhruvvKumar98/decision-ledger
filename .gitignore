@@ -1,24 +1,49 @@
+# Environment & secrets
 .env
-data/
+.env.local
+.env.production
+.env.*.local
+
+# Python
 __pycache__/
-.pytest_cache/
-*.pyc
-*.pyo
-*.pyd
-.Python
+*.py[cod]
+*$py.class
 *.egg-info/
+*.egg
 dist/
 build/
-*.egg
+.eggs/
+.Python
 .venv/
 venv/
 env/
-.eggs/
-*.log
-.DS_Store
-Thumbs.db
-.ruff_cache/
+
+# Testing
+.pytest_cache/
 htmlcov/
 .coverage
 coverage.xml
 *.cover
+
+# Linting
+.ruff_cache/
+.mypy_cache/
+
+# Docker (persistent data)
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Logs
+*.log
