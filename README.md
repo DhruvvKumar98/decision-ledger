@@ -4,6 +4,7 @@ Organizations make hundreds of consequential decisions each year and rarely know
 
 Built for product and strategy teams that want to turn decision-making into a measurable practice, not just a process.
 
+[![CI](https://github.com/11Fawkes/decision-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/11Fawkes/decision-ledger/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
