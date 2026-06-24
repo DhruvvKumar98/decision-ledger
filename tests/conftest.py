@@ -1,0 +1,120 @@
+"""Test fixtures for Decision Ledger.
+
+Uses a real PostgreSQL database (TEST_DATABASE_URL env var).
+Each test function gets a fresh schema via transactional rollback.
+CI spins up a PostgreSQL 16 service container (see .github/workflows/ci.yml).
+"""
+
+import asyncio
+import os
+from collections.abc import AsyncGenerator
+
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from api.database import get_db
+from api.main import app
+from api.models import Base
+
+# Pull from env; CI sets this via the workflow matrix
+TEST_DB_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql+asyncpg://ledger_user:test_password@localhost:5432/decision_ledger_test",
+)
+
+_test_engine = create_async_engine(TEST_DB_URL, echo=False)
+_TestSession = async_sessionmaker(_test_engine, expire_on_commit=False, class_=AsyncSession)
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Single event loop for the entire test session."""
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def create_tables():
+    """Create all tables once per session, drop them after."""
+    async with _test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    async with _test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await _test_engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def db_session() -> AsyncGenerator[AsyncSession, None]:
+    """Each test runs inside a transaction that is rolled back on completion."""
+    async with _test_engine.connect() as conn:
+        await conn.begin()
+        async with _TestSession(bind=conn) as session:
+            yield session
+        await conn.rollback()
+
+
+@pytest_asyncio.fixture
+async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """Async test client with the test DB session injected."""
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as ac:
+        yield ac
+
+    app.dependency_overrides.clear()
+
+
+# Test API key matches what verify_api_key will check
+TEST_API_KEY = "test-secret-key"
+
+os.environ.setdefault("API_KEY", TEST_API_KEY)
+os.environ.setdefault("DB_PASSWORD", "test_password")
+
+WRITE_HEADERS = {"X-API-Key": TEST_API_KEY}
+
+
+def make_decision_payload(**overrides) -> dict:
+    from datetime import date, timedelta
+
+    defaults = {
+        "title": "Test decision about pricing strategy",
+        "category": "pricing",
+        "context": "We need to decide on a pricing change. " * 3,
+        "options_considered": [
+            {
+                "option": "Hold price",
+                "pros": ["no churn risk"],
+                "cons": ["margin compression"],
+            },
+            {
+                "option": "Raise by $4",
+                "pros": ["margin recovery"],
+                "cons": ["potential 3% churn"],
+            },
+        ],
+        "data_consulted": ["NPS survey", "Competitor pricing analysis"],
+        "decision_made": "Raise price by $4 effective next month.",
+        "rationale": "Margin compression is unsustainable. Elasticity data supports this move.",
+        "expected_outcome": "Churn ≤3% at 90 days; ARR lift ≥$500K.",
+        "review_date": (date.today() + timedelta(days=90)).isoformat(),
+        "team": "Finance",
+        "owner": "Nadia Osei",
+    }
+    defaults.update(overrides)
+    return defaults
