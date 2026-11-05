@@ -20,7 +20,8 @@ from charts import (
     velocity_timeline,
 )
 
-DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
+# ponytail: default true on streamlit-cloud branch, false on master
+DEMO_MODE = os.getenv("DEMO_MODE", "true").lower() == "true"
 
 if DEMO_MODE:
     from data import (
