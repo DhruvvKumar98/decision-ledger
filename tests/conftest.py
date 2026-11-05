@@ -26,9 +26,6 @@ TEST_DB_URL = os.getenv(
     "postgresql+asyncpg://ledger_user:test_password@localhost:5432/decision_ledger_test",
 )
 
-_test_engine = create_async_engine(TEST_DB_URL, echo=False)
-_TestSession = async_sessionmaker(_test_engine, expire_on_commit=False, class_=AsyncSession)
-
 # ponytail: views depend on tables, so drop_all fails without CASCADE
 _DROP_VIEWS = text(
     "DO $$ DECLARE r RECORD; BEGIN "
@@ -40,24 +37,26 @@ _DROP_VIEWS = text(
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def create_tables():
-    """Create all tables once per session, drop them after."""
-    async with _test_engine.begin() as conn:
+    """Create engine on the session event loop, create tables, tear down after."""
+    engine = create_async_engine(TEST_DB_URL, echo=False)
+    async with engine.begin() as conn:
         await conn.execute(_DROP_VIEWS)
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
-    yield
-    async with _test_engine.begin() as conn:
+    yield engine
+    async with engine.begin() as conn:
         await conn.execute(_DROP_VIEWS)
         await conn.run_sync(Base.metadata.drop_all)
-    await _test_engine.dispose()
+    await engine.dispose()
 
 
 @pytest_asyncio.fixture
-async def db_session() -> AsyncGenerator[AsyncSession, None]:
+async def db_session(create_tables) -> AsyncGenerator[AsyncSession, None]:
     """Each test runs inside a transaction that is rolled back on completion."""
-    async with _test_engine.connect() as conn:
+    session_factory = async_sessionmaker(create_tables, expire_on_commit=False, class_=AsyncSession)
+    async with create_tables.connect() as conn:
         await conn.begin()
-        async with _TestSession(bind=conn) as session:
+        async with session_factory(bind=conn) as session:
             yield session
         await conn.rollback()
 
