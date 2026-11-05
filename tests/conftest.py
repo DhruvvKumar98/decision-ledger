@@ -27,7 +27,7 @@ TEST_DB_URL = os.getenv(
     "postgresql+asyncpg://ledger_user:test_password@localhost:5432/decision_ledger_test",
 )
 
-_VIEWS_SQL = (Path(__file__).resolve().parent.parent / "db" / "views.sql").read_text()
+_VIEWS_SQL_PATH = Path(__file__).resolve().parent.parent / "db" / "views.sql"
 
 # ponytail: views depend on tables, so drop_all fails without CASCADE
 _DROP_VIEWS = text(
@@ -46,7 +46,9 @@ async def create_tables():
         await conn.execute(_DROP_VIEWS)
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
-        await conn.execute(text(_VIEWS_SQL))
+        # ponytail: asyncpg can't do multi-statement, use raw connection
+        raw = await conn.get_raw_connection()
+        await raw.driver_connection.execute(_VIEWS_SQL_PATH.read_text())
     yield engine
     async with engine.begin() as conn:
         await conn.execute(_DROP_VIEWS)
