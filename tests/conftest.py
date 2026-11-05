@@ -1,20 +1,16 @@
 """Test fixtures for Decision Ledger.
 
 Uses a real PostgreSQL database (TEST_DATABASE_URL env var).
-Each test function gets a fresh schema via transactional rollback.
-CI spins up a PostgreSQL 16 service container (see .github/workflows/ci.yml).
+Each test gets its own engine + transactional rollback for isolation.
+CI applies schema.sql and views.sql via psql before pytest runs.
 """
 
-import asyncio
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from pathlib import Path
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -23,62 +19,23 @@ from sqlalchemy.ext.asyncio import (
 
 from api.database import get_db
 from api.main import app
-from api.models import Base
 
 TEST_DB_URL = os.getenv(
     "TEST_DATABASE_URL",
     "postgresql+asyncpg://ledger_user:test_password@localhost:5432/decision_ledger_test",
 )
 
-_VIEWS_SQL_PATH = Path(__file__).resolve().parent.parent / "db" / "views.sql"
-
-_DROP_VIEWS = text(
-    "DO $$ DECLARE r RECORD; BEGIN "
-    "FOR r IN SELECT viewname FROM pg_views WHERE schemaname = 'public' LOOP "
-    "EXECUTE 'DROP VIEW IF EXISTS ' || quote_ident(r.viewname) || ' CASCADE'; "
-    "END LOOP; END $$;"
-)
-
-# ponytail: single event loop for all tests — required so the engine pool
-# and every fixture share the same loop.
-@pytest.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-_test_engine = None
-_test_session_factory = None
-
-
-@pytest_asyncio.fixture(scope="session", autouse=True)
-async def create_tables():
-    global _test_engine, _test_session_factory
-    _test_engine = create_async_engine(TEST_DB_URL, echo=False)
-    _test_session_factory = async_sessionmaker(
-        _test_engine, expire_on_commit=False, class_=AsyncSession
-    )
-    async with _test_engine.begin() as conn:
-        await conn.execute(_DROP_VIEWS)
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
-        raw = await conn.get_raw_connection()
-        await raw.driver_connection.execute(_VIEWS_SQL_PATH.read_text())
-    yield
-    async with _test_engine.begin() as conn:
-        await conn.execute(_DROP_VIEWS)
-        await conn.run_sync(Base.metadata.drop_all)
-    await _test_engine.dispose()
-
 
 @pytest_asyncio.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    async with _test_engine.connect() as conn:
+    engine = create_async_engine(TEST_DB_URL, echo=False)
+    factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with engine.connect() as conn:
         await conn.begin()
-        async with _test_session_factory(bind=conn) as session:
+        async with factory(bind=conn) as session:
             yield session
         await conn.rollback()
+    await engine.dispose()
 
 
 @pytest_asyncio.fixture
