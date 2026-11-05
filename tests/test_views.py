@@ -5,7 +5,7 @@ view returns the expected results. This is the most important test suite
 because it validates the SQL logic that drives the analytics layer.
 """
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -29,7 +29,7 @@ def _decision(
 ) -> Decision:
     decided_at = date.today() - timedelta(days=decided_days_ago)
     review_date = decided_at + timedelta(days=review_days)
-    decided_ts = datetime.combine(decided_at, datetime.min.time(), tzinfo=timezone.utc)
+    decided_ts = datetime.combine(decided_at, datetime.min.time(), tzinfo=UTC)
     return Decision(
         title=title,
         category=category,
