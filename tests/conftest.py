@@ -5,10 +5,13 @@ Each test function gets a fresh schema via transactional rollback.
 CI spins up a PostgreSQL 16 service container (see .github/workflows/ci.yml).
 """
 
+import asyncio
 import os
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -29,7 +32,6 @@ TEST_DB_URL = os.getenv(
 
 _VIEWS_SQL_PATH = Path(__file__).resolve().parent.parent / "db" / "views.sql"
 
-# ponytail: views depend on tables, so drop_all fails without CASCADE
 _DROP_VIEWS = text(
     "DO $$ DECLARE r RECORD; BEGIN "
     "FOR r IN SELECT viewname FROM pg_views WHERE schemaname = 'public' LOOP "
@@ -37,52 +39,60 @@ _DROP_VIEWS = text(
     "END LOOP; END $$;"
 )
 
+# ponytail: single event loop for all tests — required so the engine pool
+# and every fixture share the same loop.
+@pytest.fixture(scope="session")
+def event_loop():
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
+_test_engine = None
+_test_session_factory = None
+
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def create_tables():
-    """Create engine on the session event loop, create tables, tear down after."""
-    engine = create_async_engine(TEST_DB_URL, echo=False)
-    async with engine.begin() as conn:
+    global _test_engine, _test_session_factory
+    _test_engine = create_async_engine(TEST_DB_URL, echo=False)
+    _test_session_factory = async_sessionmaker(
+        _test_engine, expire_on_commit=False, class_=AsyncSession
+    )
+    async with _test_engine.begin() as conn:
         await conn.execute(_DROP_VIEWS)
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
-        # ponytail: asyncpg can't do multi-statement, use raw connection
         raw = await conn.get_raw_connection()
         await raw.driver_connection.execute(_VIEWS_SQL_PATH.read_text())
-    yield engine
-    async with engine.begin() as conn:
+    yield
+    async with _test_engine.begin() as conn:
         await conn.execute(_DROP_VIEWS)
         await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+    await _test_engine.dispose()
 
 
 @pytest_asyncio.fixture
-async def db_session(create_tables) -> AsyncGenerator[AsyncSession, None]:
-    """Each test runs inside a transaction that is rolled back on completion."""
-    session_factory = async_sessionmaker(create_tables, expire_on_commit=False, class_=AsyncSession)
-    async with create_tables.connect() as conn:
+async def db_session() -> AsyncGenerator[AsyncSession, None]:
+    async with _test_engine.connect() as conn:
         await conn.begin()
-        async with session_factory(bind=conn) as session:
+        async with _test_session_factory(bind=conn) as session:
             yield session
         await conn.rollback()
 
 
 @pytest_asyncio.fixture
-async def client(db_session: AsyncSession, create_tables) -> AsyncGenerator[AsyncClient, None]:
-    """Async test client with the test DB session injected."""
-    from contextlib import asynccontextmanager
-
+async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     async def override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
 
-    # ponytail: replace lifespan so it uses the test engine (on the correct loop)
     @asynccontextmanager
     async def _test_lifespan(_app):
         yield
 
-    orig_router_lifespan = app.router.lifespan_context
+    orig_lifespan = app.router.lifespan_context
     app.router.lifespan_context = _test_lifespan
 
     async with AsyncClient(
@@ -92,10 +102,9 @@ async def client(db_session: AsyncSession, create_tables) -> AsyncGenerator[Asyn
         yield ac
 
     app.dependency_overrides.clear()
-    app.router.lifespan_context = orig_router_lifespan
+    app.router.lifespan_context = orig_lifespan
 
 
-# Test API key matches what verify_api_key will check
 TEST_API_KEY = "test-secret-key"
 
 os.environ.setdefault("API_KEY", TEST_API_KEY)
