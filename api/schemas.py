@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -29,8 +29,8 @@ class DecisionCreate(BaseModel):
     rationale: Annotated[str, Field(min_length=10)]
     expected_outcome: Annotated[str, Field(min_length=10, max_length=2000)]
     review_date: date
-    team: Optional[str] = Field(None, max_length=100)
-    owner: Optional[str] = Field(None, max_length=100)
+    team: str | None = Field(None, max_length=100)
+    owner: str | None = Field(None, max_length=100)
 
     @field_validator("review_date")
     @classmethod
@@ -42,14 +42,14 @@ class DecisionCreate(BaseModel):
 
 class DecisionStatusUpdate(BaseModel):
     status: Status
-    actual_outcome: Optional[str] = None
+    actual_outcome: str | None = None
 
 
 class ReviewCreate(BaseModel):
-    reviewer: Optional[str] = Field(None, max_length=100)
+    reviewer: str | None = Field(None, max_length=100)
     actual_outcome: Annotated[str, Field(min_length=1)]
-    outcome_rating: Optional[int] = Field(None, ge=1, le=5)
-    lessons_learned: Optional[str] = None
+    outcome_rating: int | None = Field(None, ge=1, le=5)
+    lessons_learned: str | None = None
 
 
 # ── Response schemas ───────────────────────────────────────────────────────────
@@ -57,10 +57,10 @@ class ReviewCreate(BaseModel):
 class ReviewOut(BaseModel):
     id: int
     decision_id: int
-    reviewer: Optional[str]
+    reviewer: str | None
     actual_outcome: str
-    outcome_rating: Optional[int]
-    lessons_learned: Optional[str]
+    outcome_rating: int | None
+    lessons_learned: str | None
     reviewed_at: datetime
 
     model_config = {"from_attributes": True}
@@ -78,9 +78,9 @@ class DecisionOut(BaseModel):
     expected_outcome: str
     review_date: date
     status: str
-    actual_outcome: Optional[str]
-    team: Optional[str]
-    owner: Optional[str]
+    actual_outcome: str | None
+    team: str | None
+    owner: str | None
     decided_at: datetime
     created_at: datetime
     updated_at: datetime
@@ -96,8 +96,8 @@ class DecisionListOut(BaseModel):
     category: str
     status: str
     review_date: date
-    team: Optional[str]
-    owner: Optional[str]
+    team: str | None
+    owner: str | None
     decided_at: datetime
 
     model_config = {"from_attributes": True}
@@ -112,13 +112,13 @@ class AccuracyRow(BaseModel):
     failed: int
     reversed: int
     superseded: int
-    accuracy_rate_pct: Optional[float]
+    accuracy_rate_pct: float | None
 
 
 class VelocityRow(BaseModel):
     category: str
     total_decisions: int
-    avg_horizon_days: Optional[float]
+    avg_horizon_days: float | None
     overdue_count: int
     month_bucket: datetime
 
@@ -127,8 +127,8 @@ class ComplianceRow(BaseModel):
     category: str
     past_due_decisions: int
     reviewed_count: int
-    compliance_rate_pct: Optional[float]
-    avg_review_lag_days: Optional[float]
+    compliance_rate_pct: float | None
+    avg_review_lag_days: float | None
 
 
 class SummaryOut(BaseModel):
@@ -139,5 +139,5 @@ class SummaryOut(BaseModel):
     reversed_decisions: int
     superseded_decisions: int
     overdue_decisions: int
-    overall_accuracy_pct: Optional[float]
-    overall_reversal_pct: Optional[float]
+    overall_accuracy_pct: float | None
+    overall_reversal_pct: float | None

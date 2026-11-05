@@ -32,7 +32,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8501",
+        "https://decision-ledger-ietcgke26aemhzqq9nquvt.streamlit.app",
+    ],
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )

@@ -1,5 +1,4 @@
 from datetime import date, datetime
-from typing import Optional
 
 from sqlalchemy import (
     CheckConstraint,
@@ -39,9 +38,9 @@ class Decision(Base):
     expected_outcome: Mapped[str] = Column(String(2000), nullable=False)
     review_date: Mapped[date] = Column(Date, nullable=False)
     status: Mapped[str] = Column(String(20), nullable=False, default="active")
-    actual_outcome: Mapped[Optional[str]] = Column(Text)
-    team: Mapped[Optional[str]] = Column(String(100))
-    owner: Mapped[Optional[str]] = Column(String(100))
+    actual_outcome: Mapped[str | None] = Column(Text)
+    team: Mapped[str | None] = Column(String(100))
+    owner: Mapped[str | None] = Column(String(100))
     decided_at: Mapped[datetime] = Column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
@@ -79,10 +78,10 @@ class Review(Base):
     decision_id: Mapped[int] = Column(
         Integer, ForeignKey("decisions.id", ondelete="CASCADE"), nullable=False
     )
-    reviewer: Mapped[Optional[str]] = Column(String(100))
+    reviewer: Mapped[str | None] = Column(String(100))
     actual_outcome: Mapped[str] = Column(Text, nullable=False)
-    outcome_rating: Mapped[Optional[int]] = Column(SmallInteger)
-    lessons_learned: Mapped[Optional[str]] = Column(Text)
+    outcome_rating: Mapped[int | None] = Column(SmallInteger)
+    lessons_learned: Mapped[str | None] = Column(Text)
     reviewed_at: Mapped[datetime] = Column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )

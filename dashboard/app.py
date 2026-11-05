@@ -4,14 +4,12 @@ Reads from the FastAPI backend. Set API_BASE_URL in your .env or environment.
 """
 
 import os
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 import httpx
 import pandas as pd
 import streamlit as st
-from dotenv import load_dotenv
-
 from charts import (
     accuracy_bar,
     accuracy_rate_line,
@@ -21,6 +19,7 @@ from charts import (
     status_donut,
     velocity_timeline,
 )
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -405,10 +404,10 @@ elif page == "New Decision":
             with st.expander(f"Option {i}", expanded=(i == 1)):
                 opt_text = st.text_input(f"Option {i} description", key=f"opt_{i}")
                 pros = st.text_input(
-                    f"Pros (comma-separated)", key=f"pros_{i}"
+                    "Pros (comma-separated)", key=f"pros_{i}"
                 )
                 cons = st.text_input(
-                    f"Cons (comma-separated)", key=f"cons_{i}"
+                    "Cons (comma-separated)", key=f"cons_{i}"
                 )
                 if opt_text:
                     options.append(

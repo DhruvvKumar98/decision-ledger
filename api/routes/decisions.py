@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -23,12 +23,12 @@ Db = Annotated[AsyncSession, Depends(get_db)]
 @router.get("", response_model=list[DecisionListOut])
 async def list_decisions(
     db: Db,
-    category: Optional[str] = Query(None, description="Filter by category"),
-    status: Optional[str] = Query(None, description="Filter by status"),
-    team: Optional[str] = Query(None, description="Filter by team"),
-    owner: Optional[str] = Query(None, description="Filter by owner"),
-    review_before: Optional[date] = Query(None, description="Review date before (inclusive)"),
-    review_after: Optional[date] = Query(None, description="Review date after (inclusive)"),
+    category: str | None = Query(None, description="Filter by category"),
+    status: str | None = Query(None, description="Filter by status"),
+    team: str | None = Query(None, description="Filter by team"),
+    owner: str | None = Query(None, description="Filter by owner"),
+    review_before: date | None = Query(None, description="Review date before (inclusive)"),
+    review_after: date | None = Query(None, description="Review date after (inclusive)"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):

@@ -5,13 +5,12 @@ Each test function gets a fresh schema via transactional rollback.
 CI spins up a PostgreSQL 16 service container (see .github/workflows/ci.yml).
 """
 
-import asyncio
 import os
 from collections.abc import AsyncGenerator
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -22,7 +21,6 @@ from api.database import get_db
 from api.main import app
 from api.models import Base
 
-# Pull from env; CI sets this via the workflow matrix
 TEST_DB_URL = os.getenv(
     "TEST_DATABASE_URL",
     "postgresql+asyncpg://ledger_user:test_password@localhost:5432/decision_ledger_test",
@@ -31,23 +29,25 @@ TEST_DB_URL = os.getenv(
 _test_engine = create_async_engine(TEST_DB_URL, echo=False)
 _TestSession = async_sessionmaker(_test_engine, expire_on_commit=False, class_=AsyncSession)
 
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Single event loop for the entire test session."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
+# ponytail: views depend on tables, so drop_all fails without CASCADE
+_DROP_VIEWS = text(
+    "DO $$ DECLARE r RECORD; BEGIN "
+    "FOR r IN SELECT viewname FROM pg_views WHERE schemaname = 'public' LOOP "
+    "EXECUTE 'DROP VIEW IF EXISTS ' || quote_ident(r.viewname) || ' CASCADE'; "
+    "END LOOP; END $$;"
+)
 
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def create_tables():
     """Create all tables once per session, drop them after."""
     async with _test_engine.begin() as conn:
+        await conn.execute(_DROP_VIEWS)
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield
     async with _test_engine.begin() as conn:
+        await conn.execute(_DROP_VIEWS)
         await conn.run_sync(Base.metadata.drop_all)
     await _test_engine.dispose()
 
