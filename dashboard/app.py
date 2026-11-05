@@ -1,13 +1,13 @@
 """Decision Ledger — Streamlit Dashboard.
 
-Reads from the FastAPI backend. Set API_BASE_URL in your .env or environment.
+Set DEMO_MODE=true for embedded sample data (no API required).
+Otherwise reads from the FastAPI backend (set API_BASE_URL).
 """
 
 import os
 from datetime import date
 from typing import Any
 
-import httpx
 import pandas as pd
 import streamlit as st
 from charts import (
@@ -19,9 +19,23 @@ from charts import (
     status_donut,
     velocity_timeline,
 )
-from dotenv import load_dotenv
 
-load_dotenv()
+DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
+
+if DEMO_MODE:
+    from data import (
+        compute_accuracy,
+        compute_compliance,
+        compute_reversal_rate,
+        compute_summary,
+        compute_velocity,
+        get_decisions_df,
+        get_reviews_df,
+    )
+else:
+    import httpx
+    from dotenv import load_dotenv
+    load_dotenv()
 
 API_BASE = os.getenv("API_BASE_URL", "http://localhost:8000")
 API_KEY = os.getenv("API_KEY", "")
@@ -34,49 +48,54 @@ st.set_page_config(
 )
 
 
-# ── API helpers ───────────────────────────────────────────────────────────────
+# ── Data layer ────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=30)
-def fetch(path: str) -> Any:
-    try:
-        r = httpx.get(f"{API_BASE}{path}", timeout=10)
-        r.raise_for_status()
-        return r.json()
-    except httpx.HTTPError as e:
-        st.error(f"API error on {path}: {e}")
-        return None
+if DEMO_MODE:
+    @st.cache_data
+    def load_demo_data():
+        return get_decisions_df(), get_reviews_df()
 
+    decisions_df, reviews_df = load_demo_data()
+else:
+    @st.cache_data(ttl=30)
+    def fetch(path: str) -> Any:
+        try:
+            r = httpx.get(f"{API_BASE}{path}", timeout=10)
+            r.raise_for_status()
+            return r.json()
+        except httpx.HTTPError as e:
+            st.error(f"API error on {path}: {e}")
+            return None
 
-def post(path: str, payload: dict) -> tuple[bool, Any]:
-    try:
-        r = httpx.post(
-            f"{API_BASE}{path}",
-            json=payload,
-            headers={"X-API-Key": API_KEY},
-            timeout=10,
-        )
-        r.raise_for_status()
-        return True, r.json()
-    except httpx.HTTPStatusError as e:
-        return False, e.response.json()
-    except httpx.HTTPError as e:
-        return False, str(e)
+    def post(path: str, payload: dict) -> tuple[bool, Any]:
+        try:
+            r = httpx.post(
+                f"{API_BASE}{path}",
+                json=payload,
+                headers={"X-API-Key": API_KEY},
+                timeout=10,
+            )
+            r.raise_for_status()
+            return True, r.json()
+        except httpx.HTTPStatusError as e:
+            return False, e.response.json()
+        except httpx.HTTPError as e:
+            return False, str(e)
 
-
-def patch(path: str, payload: dict) -> tuple[bool, Any]:
-    try:
-        r = httpx.patch(
-            f"{API_BASE}{path}",
-            json=payload,
-            headers={"X-API-Key": API_KEY},
-            timeout=10,
-        )
-        r.raise_for_status()
-        return True, r.json()
-    except httpx.HTTPStatusError as e:
-        return False, e.response.json()
-    except httpx.HTTPError as e:
-        return False, str(e)
+    def patch(path: str, payload: dict) -> tuple[bool, Any]:
+        try:
+            r = httpx.patch(
+                f"{API_BASE}{path}",
+                json=payload,
+                headers={"X-API-Key": API_KEY},
+                timeout=10,
+            )
+            r.raise_for_status()
+            return True, r.json()
+        except httpx.HTTPStatusError as e:
+            return False, e.response.json()
+        except httpx.HTTPError as e:
+            return False, str(e)
 
 
 # ── Sidebar navigation ────────────────────────────────────────────────────────
@@ -108,11 +127,13 @@ STATUS_COLORS = {
 if page == "Portfolio Overview":
     st.title("Portfolio Overview")
 
-    summary_data = fetch("/analytics/summary")
-    if not summary_data:
-        st.stop()
-
-    summary = summary_data if isinstance(summary_data, dict) else {}
+    if DEMO_MODE:
+        summary = compute_summary(decisions_df)
+    else:
+        summary_data = fetch("/analytics/summary")
+        if not summary_data:
+            st.stop()
+        summary = summary_data if isinstance(summary_data, dict) else {}
 
     # ── KPI cards ─────────────────────────────────────────────────────────────
     col1, col2, col3, col4, col5, col6 = st.columns(6)
@@ -136,29 +157,41 @@ if page == "Portfolio Overview":
 
     # ── Charts row 1 ──────────────────────────────────────────────────────────
     c1, c2 = st.columns(2)
-    summary_df = pd.DataFrame([summary])
+    summary_row = pd.DataFrame([summary])
 
     with c1:
-        st.plotly_chart(status_donut(summary_df), use_container_width=True)
+        st.plotly_chart(status_donut(summary_row), use_container_width=True)
 
-    accuracy_data = fetch("/analytics/accuracy")
-    if accuracy_data:
-        acc_df = pd.DataFrame(accuracy_data)
+    if DEMO_MODE:
+        acc_df = compute_accuracy(decisions_df)
+    else:
+        accuracy_data = fetch("/analytics/accuracy")
+        acc_df = pd.DataFrame(accuracy_data) if accuracy_data else pd.DataFrame()
+
+    if not acc_df.empty:
         with c2:
             st.plotly_chart(accuracy_rate_line(acc_df), use_container_width=True)
 
     # ── Charts row 2 ──────────────────────────────────────────────────────────
     c3, c4 = st.columns(2)
 
-    compliance_data = fetch("/analytics/compliance")
-    if compliance_data:
-        comp_df = pd.DataFrame(compliance_data)
+    if DEMO_MODE:
+        comp_df = compute_compliance(decisions_df, reviews_df)
+    else:
+        compliance_data = fetch("/analytics/compliance")
+        comp_df = pd.DataFrame(compliance_data) if compliance_data else pd.DataFrame()
+
+    if not comp_df.empty:
         with c3:
             st.plotly_chart(compliance_heatmap(comp_df), use_container_width=True)
 
-    reversal_data = fetch("/analytics/reversal-rate")
-    if reversal_data:
-        rev_df = pd.DataFrame(reversal_data)
+    if DEMO_MODE:
+        rev_df = compute_reversal_rate(decisions_df)
+    else:
+        reversal_data = fetch("/analytics/reversal-rate")
+        rev_df = pd.DataFrame(reversal_data) if reversal_data else pd.DataFrame()
+
+    if not rev_df.empty:
         with c4:
             st.plotly_chart(reversal_waterfall(rev_df), use_container_width=True)
 
@@ -183,57 +216,74 @@ elif page == "Decision Explorer":
     fc1, fc2, fc3 = st.columns(3)
     sel_cat = fc1.selectbox("Category", ["All"] + CATEGORIES, key="exp_cat")
     sel_status = fc2.selectbox("Status", ["All"] + STATUSES, key="exp_status")
-    sel_owner = fc3.text_input("Owner (exact)", key="exp_owner")
+    sel_owner = fc3.text_input("Owner (contains)", key="exp_owner")
 
-    params = []
-    if sel_cat != "All":
-        params.append(f"category={sel_cat}")
-    if sel_status != "All":
-        params.append(f"status={sel_status}")
-    if sel_owner:
-        params.append(f"owner={sel_owner}")
-    params.append("limit=200")
+    if DEMO_MODE:
+        filtered = decisions_df.copy()
+        if sel_cat != "All":
+            filtered = filtered[filtered["category"] == sel_cat]
+        if sel_status != "All":
+            filtered = filtered[filtered["status"] == sel_status]
+        if sel_owner:
+            filtered = filtered[filtered["owner"].str.contains(sel_owner, case=False, na=False)]
 
-    query = "&".join(params)
-    decisions = fetch(f"/decisions?{query}")
+        if filtered.empty:
+            st.info("No decisions match the current filters.")
+            st.stop()
 
-    if not decisions:
-        st.info("No decisions match the current filters.")
-        st.stop()
+        display = filtered[["id", "title", "category", "status", "review_date", "owner", "team", "decided_at"]].copy()
+        display["decided_at"] = display["decided_at"].dt.strftime("%Y-%m-%d")
+        display["review_date"] = display["review_date"].dt.strftime("%Y-%m-%d")
+    else:
+        params = []
+        if sel_cat != "All":
+            params.append(f"category={sel_cat}")
+        if sel_status != "All":
+            params.append(f"status={sel_status}")
+        if sel_owner:
+            params.append(f"owner={sel_owner}")
+        params.append("limit=200")
 
-    df = pd.DataFrame(decisions)
-    df["decided_at"] = pd.to_datetime(df["decided_at"]).dt.strftime("%Y-%m-%d")
-    df["review_date"] = pd.to_datetime(df["review_date"]).dt.strftime("%Y-%m-%d")
+        query = "&".join(params)
+        decisions = fetch(f"/decisions?{query}")
+
+        if not decisions:
+            st.info("No decisions match the current filters.")
+            st.stop()
+
+        display = pd.DataFrame(decisions)
+        display["decided_at"] = pd.to_datetime(display["decided_at"]).dt.strftime("%Y-%m-%d")
+        display["review_date"] = pd.to_datetime(display["review_date"]).dt.strftime("%Y-%m-%d")
 
     # ── Table ─────────────────────────────────────────────────────────────────
     display_cols = ["id", "title", "category", "status", "review_date", "owner", "team", "decided_at"]
-    existing_cols = [c for c in display_cols if c in df.columns]
+    existing_cols = [c for c in display_cols if c in display.columns]
     st.dataframe(
-        df[existing_cols].rename(
+        display[existing_cols].rename(
             columns={
-                "id": "ID",
-                "title": "Title",
-                "category": "Category",
-                "status": "Status",
-                "review_date": "Review Date",
-                "owner": "Owner",
-                "team": "Team",
-                "decided_at": "Decided",
+                "id": "ID", "title": "Title", "category": "Category",
+                "status": "Status", "review_date": "Review Date",
+                "owner": "Owner", "team": "Team", "decided_at": "Decided",
             }
         ),
         use_container_width=True,
         hide_index=True,
     )
-
-    st.caption(f"{len(df)} decision(s) shown")
+    st.caption(f"{len(display)} decision(s) shown")
 
     # ── Detail panel ──────────────────────────────────────────────────────────
     st.subheader("Decision Detail")
-    decision_ids = [d["id"] for d in decisions]
+    decision_ids = display["id"].tolist() if DEMO_MODE else [d["id"] for d in decisions]
     selected_id = st.selectbox("Select decision ID", decision_ids, key="detail_id")
 
     if selected_id:
-        detail = fetch(f"/decisions/{selected_id}")
+        if DEMO_MODE:
+            detail = decisions_df[decisions_df["id"] == selected_id].iloc[0].to_dict()
+            decision_reviews = reviews_df[reviews_df["decision_id"] == selected_id]
+        else:
+            detail = fetch(f"/decisions/{selected_id}")
+            decision_reviews = None
+
         if detail:
             col_l, col_r = st.columns([2, 1])
             with col_l:
@@ -264,75 +314,90 @@ elif page == "Decision Explorer":
                     )
                 if detail.get("data_consulted"):
                     with st.expander("Data Consulted"):
-                        for d in detail["data_consulted"]:
-                            st.markdown(f"- {d}")
+                        for d_item in detail["data_consulted"]:
+                            st.markdown(f"- {d_item}")
 
             with col_r:
-                st.markdown(f"**Review date:** {detail['review_date']}")
-                reviews = detail.get("reviews", [])
-                st.markdown(f"**Reviews logged:** {len(reviews)}")
+                review_date = detail.get("review_date", "—")
+                if hasattr(review_date, "strftime"):
+                    review_date = review_date.strftime("%Y-%m-%d")
+                st.markdown(f"**Review date:** {review_date}")
 
-                if reviews:
-                    for rev in reviews:
-                        with st.container(border=True):
-                            rating = rev.get("outcome_rating")
-                            stars = "⭐" * rating if rating else "—"
-                            st.markdown(
-                                f"**{rev.get('reviewer', 'Anonymous')}** {stars}"
-                            )
-                            st.write(rev["actual_outcome"])
-                            if rev.get("lessons_learned"):
-                                st.caption(f"💡 {rev['lessons_learned']}")
+                if DEMO_MODE:
+                    st.markdown(f"**Reviews logged:** {len(decision_reviews)}")
+                    if not decision_reviews.empty:
+                        for _, rev in decision_reviews.iterrows():
+                            with st.container(border=True):
+                                rating = rev.get("outcome_rating")
+                                stars = "⭐" * int(rating) if pd.notna(rating) else "—"
+                                st.markdown(f"**{rev.get('reviewer', 'Anonymous')}** {stars}")
+                                st.write(rev["actual_outcome"])
+                                if rev.get("lessons_learned") and pd.notna(rev["lessons_learned"]):
+                                    st.caption(f"💡 {rev['lessons_learned']}")
+                else:
+                    reviews = detail.get("reviews", [])
+                    st.markdown(f"**Reviews logged:** {len(reviews)}")
 
-                # ── Status update form ─────────────────────────────────────
-                if API_KEY:
-                    st.subheader("Update Status")
-                    with st.form(f"status_form_{selected_id}"):
-                        new_status = st.selectbox("New status", STATUSES)
-                        actual_outcome = st.text_area("Actual outcome (optional)")
-                        submitted = st.form_submit_button("Update")
-                        if submitted:
-                            ok, resp = patch(
-                                f"/decisions/{selected_id}/status",
-                                {
-                                    "status": new_status,
-                                    "actual_outcome": actual_outcome or None,
-                                },
-                            )
-                            if ok:
-                                st.success("Status updated.")
-                                st.cache_data.clear()
-                            else:
-                                st.error(f"Error: {resp}")
+                    if reviews:
+                        for rev in reviews:
+                            with st.container(border=True):
+                                rating = rev.get("outcome_rating")
+                                stars = "⭐" * rating if rating else "—"
+                                st.markdown(
+                                    f"**{rev.get('reviewer', 'Anonymous')}** {stars}"
+                                )
+                                st.write(rev["actual_outcome"])
+                                if rev.get("lessons_learned"):
+                                    st.caption(f"💡 {rev['lessons_learned']}")
 
-                    # ── Add review form ────────────────────────────────────
-                    st.subheader("Add Review")
-                    with st.form(f"review_form_{selected_id}"):
-                        reviewer = st.text_input("Reviewer name")
-                        actual_outcome_rev = st.text_area("Outcome description *", key="rev_ao")
-                        rating = st.slider("Outcome rating (1–5)", 1, 5, 3)
-                        lessons = st.text_area("Lessons learned")
-                        rev_submitted = st.form_submit_button("Submit Review")
-                        if rev_submitted:
-                            if not actual_outcome_rev.strip():
-                                st.warning("Outcome description is required.")
-                            else:
-                                ok, resp = post(
-                                    f"/decisions/{selected_id}/reviews",
+                    # ── Write operations (API mode only) ──────────────────
+                    if API_KEY:
+                        st.subheader("Update Status")
+                        with st.form(f"status_form_{selected_id}"):
+                            new_status = st.selectbox("New status", STATUSES)
+                            actual_outcome = st.text_area("Actual outcome (optional)")
+                            submitted = st.form_submit_button("Update")
+                            if submitted:
+                                ok, resp = patch(
+                                    f"/decisions/{selected_id}/status",
                                     {
-                                        "reviewer": reviewer or None,
-                                        "actual_outcome": actual_outcome_rev,
-                                        "outcome_rating": rating,
-                                        "lessons_learned": lessons or None,
+                                        "status": new_status,
+                                        "actual_outcome": actual_outcome or None,
                                     },
                                 )
                                 if ok:
-                                    st.success("Review added.")
+                                    st.success("Status updated.")
                                     st.cache_data.clear()
                                 else:
                                     st.error(f"Error: {resp}")
-                else:
-                    st.info("Set API_KEY in your .env to enable write operations.")
+
+                        st.subheader("Add Review")
+                        with st.form(f"review_form_{selected_id}"):
+                            reviewer = st.text_input("Reviewer name")
+                            actual_outcome_rev = st.text_area("Outcome description *", key="rev_ao")
+                            rating = st.slider("Outcome rating (1–5)", 1, 5, 3)
+                            lessons = st.text_area("Lessons learned")
+                            rev_submitted = st.form_submit_button("Submit Review")
+                            if rev_submitted:
+                                if not actual_outcome_rev.strip():
+                                    st.warning("Outcome description is required.")
+                                else:
+                                    ok, resp = post(
+                                        f"/decisions/{selected_id}/reviews",
+                                        {
+                                            "reviewer": reviewer or None,
+                                            "actual_outcome": actual_outcome_rev,
+                                            "outcome_rating": rating,
+                                            "lessons_learned": lessons or None,
+                                        },
+                                    )
+                                    if ok:
+                                        st.success("Review added.")
+                                        st.cache_data.clear()
+                                    else:
+                                        st.error(f"Error: {resp}")
+                    else:
+                        st.info("Set API_KEY in your .env to enable write operations.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -348,34 +413,46 @@ elif page == "Analytics":
 
     with tab1:
         st.subheader("Decision Accuracy by Category")
-        data = fetch("/analytics/accuracy")
-        if data:
-            df = pd.DataFrame(data)
+        if DEMO_MODE:
+            df = compute_accuracy(decisions_df)
+        else:
+            data = fetch("/analytics/accuracy")
+            df = pd.DataFrame(data) if data else pd.DataFrame()
+        if not df.empty:
             st.plotly_chart(accuracy_bar(df), use_container_width=True)
             st.plotly_chart(accuracy_rate_line(df), use_container_width=True)
             st.dataframe(df, use_container_width=True, hide_index=True)
 
     with tab2:
         st.subheader("Decision Velocity Over Time")
-        data = fetch("/analytics/velocity")
-        if data:
-            df = pd.DataFrame(data)
+        if DEMO_MODE:
+            df = compute_velocity(decisions_df)
+        else:
+            data = fetch("/analytics/velocity")
+            df = pd.DataFrame(data) if data else pd.DataFrame()
+        if not df.empty:
             st.plotly_chart(velocity_timeline(df), use_container_width=True)
             st.plotly_chart(horizon_box(df), use_container_width=True)
 
     with tab3:
         st.subheader("Review Compliance by Category")
-        data = fetch("/analytics/compliance")
-        if data:
-            df = pd.DataFrame(data)
+        if DEMO_MODE:
+            df = compute_compliance(decisions_df, reviews_df)
+        else:
+            data = fetch("/analytics/compliance")
+            df = pd.DataFrame(data) if data else pd.DataFrame()
+        if not df.empty:
             st.plotly_chart(compliance_heatmap(df), use_container_width=True)
             st.dataframe(df, use_container_width=True, hide_index=True)
 
     with tab4:
         st.subheader("Reversal & Failure Rates by Category")
-        data = fetch("/analytics/reversal-rate")
-        if data:
-            df = pd.DataFrame(data)
+        if DEMO_MODE:
+            df = compute_reversal_rate(decisions_df)
+        else:
+            data = fetch("/analytics/reversal-rate")
+            df = pd.DataFrame(data) if data else pd.DataFrame()
+        if not df.empty:
             st.plotly_chart(reversal_waterfall(df), use_container_width=True)
             st.dataframe(df, use_container_width=True, hide_index=True)
 
@@ -387,7 +464,12 @@ elif page == "Analytics":
 elif page == "New Decision":
     st.title("Log a New Decision")
 
-    if not API_KEY:
+    if DEMO_MODE:
+        st.info(
+            "**Demo mode** — this app runs with embedded sample data. "
+            "In production, decisions are stored in PostgreSQL via the FastAPI backend."
+        )
+    elif not API_KEY:
         st.warning("Set API_KEY in your .env to enable decision creation.")
         st.stop()
 
@@ -479,9 +561,15 @@ elif page == "New Decision":
                     "team": team.strip() or None,
                     "owner": owner.strip() or None,
                 }
-                ok, resp = post("/decisions", payload)
-                if ok:
-                    st.success(f"✅ Decision logged with ID {resp['id']}")
-                    st.cache_data.clear()
+                if DEMO_MODE:
+                    st.success(
+                        f"**Demo:** Decision '{title.strip()}' would be logged. "
+                        "In production, this writes to PostgreSQL via the API."
+                    )
                 else:
-                    st.error(f"Failed to create decision: {resp}")
+                    ok, resp = post("/decisions", payload)
+                    if ok:
+                        st.success(f"Decision logged with ID {resp['id']}")
+                        st.cache_data.clear()
+                    else:
+                        st.error(f"Failed to create decision: {resp}")
