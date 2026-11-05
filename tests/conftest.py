@@ -7,6 +7,7 @@ CI spins up a PostgreSQL 16 service container (see .github/workflows/ci.yml).
 
 import os
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -26,6 +27,8 @@ TEST_DB_URL = os.getenv(
     "postgresql+asyncpg://ledger_user:test_password@localhost:5432/decision_ledger_test",
 )
 
+_VIEWS_SQL = (Path(__file__).resolve().parent.parent / "db" / "views.sql").read_text()
+
 # ponytail: views depend on tables, so drop_all fails without CASCADE
 _DROP_VIEWS = text(
     "DO $$ DECLARE r RECORD; BEGIN "
@@ -43,6 +46,7 @@ async def create_tables():
         await conn.execute(_DROP_VIEWS)
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text(_VIEWS_SQL))
     yield engine
     async with engine.begin() as conn:
         await conn.execute(_DROP_VIEWS)
