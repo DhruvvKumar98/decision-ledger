@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+import api.main as _main_mod
 from api.database import get_db
 from api.main import app
 from api.models import Base
@@ -62,13 +63,16 @@ async def db_session(create_tables) -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest_asyncio.fixture
-async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+async def client(db_session: AsyncSession, create_tables) -> AsyncGenerator[AsyncClient, None]:
     """Async test client with the test DB session injected."""
 
     async def override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    # ponytail: patch the engine the lifespan uses so it's on the test event loop
+    _orig_engine = _main_mod.engine
+    _main_mod.engine = create_tables
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -77,6 +81,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
         yield ac
 
     app.dependency_overrides.clear()
+    _main_mod.engine = _orig_engine
 
 
 # Test API key matches what verify_api_key will check
