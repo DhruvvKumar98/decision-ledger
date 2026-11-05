@@ -107,7 +107,7 @@ class TestViewDecisionAccuracy:
         assert row["failed"] == 1
         assert row["total_terminal"] == 3
         # 2 of 3 = 66.7%
-        assert abs(row["accuracy_rate_pct"] - 66.7) < 0.5
+        assert abs(float(row["accuracy_rate_pct"]) - 66.7) < 0.5
 
     async def test_product_reversal_counted_correctly(self, db_session: AsyncSession, seeded_db):
         result = await db_session.execute(
@@ -217,4 +217,4 @@ class TestViewOutcomeRatingSummary:
         row = result.mappings().one()
         assert row["total_reviews"] == 3  # P1, P1 second review, P2, P3 = wait, we have 3 reviews
         # avg of ratings 5, 4, 2 = 3.67
-        assert abs(row["avg_rating"] - 3.67) < 0.1
+        assert abs(float(row["avg_rating"]) - 3.67) < 0.1
